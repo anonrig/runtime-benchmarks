@@ -1,0 +1,5 @@
+node_modules/
+.claude/
+*/workerd.config.capnp
+*/benchmark-results.json
+*/benchmark-results.md

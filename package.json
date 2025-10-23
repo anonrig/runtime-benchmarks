@@ -1,0 +1,22 @@
+{
+  "name": "runtime-benchmarks",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "bench": "node --no-warnings --experimental-strip-types runner.ts",
+    "format": "prettier --write ."
+  },
+  "keywords": [],
+  "author": "Yagiz Nizipli <yagiz@cloudflare.com>",
+  "license": "MIT",
+  "description": "",
+  "devDependencies": {
+    "@types/node": "^24.9.1",
+    "prettier": "^3.6.2"
+  },
+  "dependencies": {
+    "workerd": "^1.20251023.0"
+  }
+}
