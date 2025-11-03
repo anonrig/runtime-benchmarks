@@ -1,6 +1,6 @@
 import { ChildProcess, execSync, spawn } from 'node:child_process'
 import { parseArgs } from 'node:util'
-import { copyFileSync, unlinkSync, readFileSync } from 'node:fs'
+import { copyFileSync, unlinkSync, readFileSync, writeFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { createConnection } from 'node:net'
@@ -74,25 +74,37 @@ async function waitForPort(port: number, maxAttempts = 30): Promise<void> {
   throw new Error(`Port ${port} did not become available`)
 }
 
-async function startServer(filePath: string, runtime: Benchmark['runtime'], cwd?: string): void {
+async function startServer(
+  filePath: string,
+  runtime: Benchmark['runtime'],
+  cwd?: string
+): void {
   console.log(`Starting server for ${runtime}`)
   switch (runtime) {
     case 'workerd':
       processes.workerd = spawn(
-        './node_modules/.bin/workerd',
+        '../node_modules/.bin/workerd',
         ['serve', filePath],
-        { stdio: 'ignore', detached: false }
+        { stdio: 'ignore', detached: false, cwd: cwd }
       )
       break
     case 'deno':
-      processes.deno = spawn('deno', ['run', '--allow-net', '--allow-read', filePath], {
+      processes.deno = spawn(
+        'deno',
+        ['run', '--allow-net', '--allow-read', filePath],
+        {
+          stdio: 'ignore',
+          detached: false,
+          cwd: cwd,
+        }
+      )
+      break
+    case 'bun':
+      processes.bun = spawn('bun', [filePath], {
         stdio: 'ignore',
         detached: false,
         cwd: cwd,
       })
-      break
-    case 'bun':
-      processes.bun = spawn('bun', [filePath], { stdio: 'ignore', detached: false, cwd: cwd })
       break
     case 'node':
       processes.node = spawn('node', [filePath], {
@@ -117,18 +129,53 @@ const exportMarkdown = path.join(benchmark, 'benchmark-results.md')
 
 let command = `hyperfine --warmup 50 --export-json ${exportJson} --export-markdown ${exportMarkdown} `
 
+// Generate workerd config with dynamic file embedding
 const destination = path.join(benchmark, 'workerd.config.capnp')
+let baseCapnp = readFileSync('./base.capnp', 'utf8')
+
+// Always embed benchmark.js as an esModule
+let additionalFiles =
+  ',\n    (name = "benchmark.js", esModule = embed "benchmark.js")'
+
+// Check if files.json exists in the benchmark directory
+const filesJsonPath = path.join(benchmark, 'files.json')
+try {
+  const files = JSON.parse(readFileSync(filesJsonPath, 'utf8'))
+  if (Array.isArray(files) && files.length > 0) {
+    additionalFiles +=
+      ',\n    ' +
+      files
+        .map((file) => `(name = "${file}", text = embed "${file}")`)
+        .join(',\n    ')
+  }
+} catch (error) {
+  // No files.json or invalid JSON, no additional files needed
+}
+
+// Replace the comment line with actual embedded files
+baseCapnp = baseCapnp.replace(
+  '    # Additional files will be inserted here by the runner',
+  additionalFiles
+)
+
 try {
   unlinkSync(destination)
 } catch (error) {}
-copyFileSync('./base.capnp', destination)
+writeFileSync(destination, baseCapnp, 'utf8')
+
+// Copy template files for each runtime
+for (const runtime of runtimes) {
+  const templatePath = `./templates/${runtime}.template.js`
+  const destinationPath = path.join(benchmark, `${runtime}.js`)
+  try {
+    unlinkSync(destinationPath)
+  } catch (error) {}
+  copyFileSync(templatePath, destinationPath)
+}
 
 for (const runtime of runtimes) {
   if (runtime === 'workerd') {
-    await startServer(
-      path.join('./', benchmark, 'workerd.config.capnp'),
-      runtime
-    )
+    await startServer('./workerd.config.capnp', runtime, benchmark)
   } else {
     await startServer(`./${runtime}.js`, runtime, benchmark)
   }

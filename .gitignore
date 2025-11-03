@@ -3,3 +3,7 @@ node_modules/
 */workerd.config.capnp
 */benchmark-results.json
 */benchmark-results.md
+*/deno.js
+*/bun.js
+*/node.js
+*/workerd.js

@@ -25,6 +25,7 @@ const helloWorldExample :Workerd.Config = (
 const baseWorker :Workerd.Worker = (
   modules = [
     (name = "worker", esModule = embed "workerd.js")
+    # Additional files will be inserted here by the runner
   ],
   compatibilityDate = "2025-10-01",
   compatibilityFlags = [ "nodejs_compat" ]
