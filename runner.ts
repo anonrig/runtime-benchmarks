@@ -74,29 +74,31 @@ async function waitForPort(port: number, maxAttempts = 30): Promise<void> {
   throw new Error(`Port ${port} did not become available`)
 }
 
-async function startServer(path: string, runtime: Benchmark['runtime']): void {
+async function startServer(filePath: string, runtime: Benchmark['runtime'], cwd?: string): void {
   console.log(`Starting server for ${runtime}`)
   switch (runtime) {
     case 'workerd':
       processes.workerd = spawn(
         './node_modules/.bin/workerd',
-        ['serve', path],
+        ['serve', filePath],
         { stdio: 'ignore', detached: false }
       )
       break
     case 'deno':
-      processes.deno = spawn('deno', ['run', '--allow-net', path], {
+      processes.deno = spawn('deno', ['run', '--allow-net', '--allow-read', filePath], {
         stdio: 'ignore',
         detached: false,
+        cwd: cwd,
       })
       break
     case 'bun':
-      processes.bun = spawn('bun', [path], { stdio: 'ignore', detached: false })
+      processes.bun = spawn('bun', [filePath], { stdio: 'ignore', detached: false, cwd: cwd })
       break
     case 'node':
-      processes.node = spawn('node', [path], {
+      processes.node = spawn('node', [filePath], {
         stdio: 'ignore',
         detached: false,
+        cwd: cwd,
       })
       break
   }
@@ -128,7 +130,7 @@ for (const runtime of runtimes) {
       runtime
     )
   } else {
-    await startServer(path.join('./', benchmark, `./${runtime}.js`), runtime)
+    await startServer(`./${runtime}.js`, runtime, benchmark)
   }
 
   const port = config[runtime].port
