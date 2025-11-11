@@ -1,6 +1,6 @@
 import { ChildProcess, execSync, spawn } from 'node:child_process'
 import { parseArgs } from 'node:util'
-import { copyFileSync, unlinkSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, unlinkSync, readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { createConnection } from 'node:net'
@@ -121,75 +121,131 @@ async function startServer(
 let benchmark = values.benchmark
 assert(
   benchmark,
-  'Benchmark path is required, such as: node --run bench -- --benchmark=hello-world'
+  'Benchmark path is required, such as: node --run bench -- --benchmark=hello-world or --benchmark=all'
 )
 
-const exportJson = path.join(benchmark, 'benchmark-results.json')
-const exportMarkdown = path.join(benchmark, 'benchmark-results.md')
+async function runBenchmark(benchmarkPath: string) {
+  console.log(`\n${'='.repeat(60)}`)
+  console.log(`Running benchmark: ${benchmarkPath}`)
+  console.log('='.repeat(60) + '\n')
 
-let command = `hyperfine --warmup 50 --export-json ${exportJson} --export-markdown ${exportMarkdown} `
+  const exportJson = path.join(benchmarkPath, 'benchmark-results.json')
+  const exportMarkdown = path.join(benchmarkPath, 'benchmark-results.md')
 
-// Generate workerd config with dynamic file embedding
-const destination = path.join(benchmark, 'workerd.config.capnp')
-let baseCapnp = readFileSync('./base.capnp', 'utf8')
+  let command = `hyperfine --warmup 50 --export-json ${exportJson} --export-markdown ${exportMarkdown} `
 
-// Always embed benchmark.js as an esModule
-let additionalFiles =
-  ',\n    (name = "benchmark.js", esModule = embed "benchmark.js")'
+  // Generate workerd config with dynamic file embedding
+  const destination = path.join(benchmarkPath, 'workerd.config.capnp')
+  let baseCapnp = readFileSync('./base.capnp', 'utf8')
 
-// Check if files.json exists in the benchmark directory
-const filesJsonPath = path.join(benchmark, 'files.json')
-try {
-  const files = JSON.parse(readFileSync(filesJsonPath, 'utf8'))
-  if (Array.isArray(files) && files.length > 0) {
-    additionalFiles +=
-      ',\n    ' +
-      files
-        .map((file) => `(name = "${file}", text = embed "${file}")`)
-        .join(',\n    ')
-  }
-} catch (error) {
-  // No files.json or invalid JSON, no additional files needed
-}
+  // Always embed benchmark.js as an esModule
+  let additionalFiles =
+    ',\n    (name = "benchmark.js", esModule = embed "benchmark.js")'
 
-// Replace the comment line with actual embedded files
-baseCapnp = baseCapnp.replace(
-  '    # Additional files will be inserted here by the runner',
-  additionalFiles
-)
-
-try {
-  unlinkSync(destination)
-} catch (error) {}
-writeFileSync(destination, baseCapnp, 'utf8')
-
-// Copy template files for each runtime
-for (const runtime of runtimes) {
-  const templatePath = `./templates/${runtime}.template.js`
-  const destinationPath = path.join(benchmark, `${runtime}.js`)
+  // Check if files.json exists in the benchmark directory
+  const filesJsonPath = path.join(benchmarkPath, 'files.json')
   try {
-    unlinkSync(destinationPath)
-  } catch (error) {}
-  copyFileSync(templatePath, destinationPath)
-}
-
-for (const runtime of runtimes) {
-  if (runtime === 'workerd') {
-    await startServer('./workerd.config.capnp', runtime, benchmark)
-  } else {
-    await startServer(`./${runtime}.js`, runtime, benchmark)
+    const files = JSON.parse(readFileSync(filesJsonPath, 'utf8'))
+    if (Array.isArray(files) && files.length > 0) {
+      additionalFiles +=
+        ',\n    ' +
+        files
+          .map((file) => `(name = "${file}", text = embed "${file}")`)
+          .join(',\n    ')
+    }
+  } catch (error) {
+    // No files.json or invalid JSON, no additional files needed
   }
 
-  const port = config[runtime].port
-  command += ` -n "${runtime}" "curl http://localhost:${port}/"`
+  // Replace the comment line with actual embedded files
+  baseCapnp = baseCapnp.replace(
+    '    # Additional files will be inserted here by the runner',
+    additionalFiles
+  )
+
+  try {
+    unlinkSync(destination)
+  } catch (error) {}
+  writeFileSync(destination, baseCapnp, 'utf8')
+
+  // Copy template files for each runtime
+  for (const runtime of runtimes) {
+    const templatePath = `./templates/${runtime}.template.js`
+    const destinationPath = path.join(benchmarkPath, `${runtime}.js`)
+    try {
+      unlinkSync(destinationPath)
+    } catch (error) {}
+    copyFileSync(templatePath, destinationPath)
+  }
+
+  for (const runtime of runtimes) {
+    if (runtime === 'workerd') {
+      await startServer('./workerd.config.capnp', runtime, benchmarkPath)
+    } else {
+      await startServer(`./${runtime}.js`, runtime, benchmarkPath)
+    }
+
+    const port = config[runtime].port
+    command += ` -n "${runtime}" "curl http://localhost:${port}/"`
+  }
+
+  console.log('All servers ready!')
+  console.log('')
+  console.log('Now running: ', command)
+  console.log('')
+
+  execSync(command, { stdio: ['inherit', 'inherit', 'inherit'] })
+
+  cleanup()
 }
 
-console.log('All servers ready!')
-console.log('')
-console.log('Now running: ', command)
-console.log('')
+function findBenchmarkDirectories(): string[] {
+  const entries = readdirSync('.')
+  const benchmarkDirs: string[] = []
 
-execSync(command, { stdio: ['inherit', 'inherit', 'inherit'] })
+  for (const entry of entries) {
+    // Skip hidden directories, node_modules, and templates
+    if (entry.startsWith('.') || entry === 'node_modules' || entry === 'templates') {
+      continue
+    }
 
-cleanup()
+    const fullPath = path.join('.', entry)
+
+    // Check if it's a directory
+    try {
+      const stat = statSync(fullPath)
+      if (!stat.isDirectory()) {
+        continue
+      }
+    } catch (error) {
+      continue
+    }
+
+    // Check if it contains benchmark.js
+    const benchmarkFile = path.join(fullPath, 'benchmark.js')
+    if (existsSync(benchmarkFile)) {
+      benchmarkDirs.push(entry)
+    }
+  }
+
+  return benchmarkDirs.sort()
+}
+
+if (benchmark === 'all') {
+  const benchmarkDirs = findBenchmarkDirectories()
+
+  if (benchmarkDirs.length === 0) {
+    console.error('No benchmark directories found!')
+    process.exit(1)
+  }
+
+  console.log(`Found ${benchmarkDirs.length} benchmark(s): ${benchmarkDirs.join(', ')}`)
+
+  for (const dir of benchmarkDirs) {
+    await runBenchmark(dir)
+  }
+} else {
+  await runBenchmark(benchmark)
+}
+
 process.exit(0)

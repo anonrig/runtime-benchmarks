@@ -6,6 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "bench": "node --no-warnings --experimental-strip-types runner.ts",
+    "bench:all": "node --no-warnings --experimental-strip-types runner.ts --benchmark=all",
     "format": "prettier --write ."
   },
   "keywords": [],
@@ -13,10 +14,10 @@
   "license": "MIT",
   "description": "",
   "devDependencies": {
-    "@types/node": "^24.9.1",
+    "@types/node": "^24.10.0",
     "prettier": "^3.6.2"
   },
   "dependencies": {
-    "workerd": "^1.20251023.0"
+    "workerd": "^1.20251111.0"
   }
 }
