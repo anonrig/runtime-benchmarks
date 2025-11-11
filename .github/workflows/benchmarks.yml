@@ -47,6 +47,7 @@ jobs:
         with:
           run: pnpm run bench:all
           token: ${{ secrets.CODSPEED_TOKEN }}
+          mode: walltime
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v5.0.0
