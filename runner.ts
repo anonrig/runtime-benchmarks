@@ -1,10 +1,22 @@
 import { ChildProcess, execSync, spawn } from 'node:child_process'
 import { parseArgs } from 'node:util'
-import { copyFileSync, unlinkSync, readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs'
+import {
+  copyFileSync,
+  unlinkSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  statSync,
+  existsSync,
+} from 'node:fs'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { createConnection } from 'node:net'
 import { setTimeout } from 'node:timers/promises'
+import { fileURLToPath } from 'node:url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const config = JSON.parse(readFileSync('./config.json', 'utf8'))
 const runtimes = ['workerd', 'deno', 'bun', 'node']
@@ -80,40 +92,61 @@ async function startServer(
   cwd?: string
 ): void {
   console.log(`Starting server for ${runtime}`)
+
+  const spawnOptions = {
+    stdio: ['ignore', 'ignore', 'pipe'] as const,
+    detached: false,
+    cwd: cwd,
+  }
+
+  let proc: ChildProcess
+
   switch (runtime) {
     case 'workerd':
-      processes.workerd = spawn(
-        '../node_modules/.bin/workerd',
-        ['serve', filePath],
-        { stdio: 'ignore', detached: false, cwd: cwd }
+      const workerdPath = path.join(
+        __dirname,
+        'node_modules',
+        '.bin',
+        'workerd'
       )
+      proc = spawn(workerdPath, ['serve', filePath], spawnOptions)
+      processes.workerd = proc
       break
     case 'deno':
-      processes.deno = spawn(
+      proc = spawn(
         'deno',
         ['run', '--allow-net', '--allow-read', filePath],
-        {
-          stdio: 'ignore',
-          detached: false,
-          cwd: cwd,
-        }
+        spawnOptions
       )
+      processes.deno = proc
       break
     case 'bun':
-      processes.bun = spawn('bun', [filePath], {
-        stdio: 'ignore',
-        detached: false,
-        cwd: cwd,
-      })
+      proc = spawn('bun', [filePath], spawnOptions)
+      processes.bun = proc
       break
     case 'node':
-      processes.node = spawn('node', [filePath], {
-        stdio: 'ignore',
-        detached: false,
-        cwd: cwd,
-      })
+      proc = spawn('node', [filePath], spawnOptions)
+      processes.node = proc
       break
   }
+
+  // Capture stderr for debugging
+  proc!.stderr?.on('data', (data) => {
+    console.error(`[${runtime} stderr]:`, data.toString())
+  })
+
+  proc!.on('error', (error) => {
+    console.error(`[${runtime} error]:`, error)
+  })
+
+  proc!.on('exit', (code, signal) => {
+    if (code !== null && code !== 0) {
+      console.error(`[${runtime}] exited with code ${code}`)
+    }
+    if (signal) {
+      console.error(`[${runtime}] killed by signal ${signal}`)
+    }
+  })
 
   await waitForPort(config[runtime].port)
 }
@@ -205,7 +238,11 @@ function findBenchmarkDirectories(): string[] {
 
   for (const entry of entries) {
     // Skip hidden directories, node_modules, and templates
-    if (entry.startsWith('.') || entry === 'node_modules' || entry === 'templates') {
+    if (
+      entry.startsWith('.') ||
+      entry === 'node_modules' ||
+      entry === 'templates'
+    ) {
       continue
     }
 
@@ -239,7 +276,9 @@ if (benchmark === 'all') {
     process.exit(1)
   }
 
-  console.log(`Found ${benchmarkDirs.length} benchmark(s): ${benchmarkDirs.join(', ')}`)
+  console.log(
+    `Found ${benchmarkDirs.length} benchmark(s): ${benchmarkDirs.join(', ')}`
+  )
 
   for (const dir of benchmarkDirs) {
     await runBenchmark(dir)

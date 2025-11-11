@@ -108,13 +108,13 @@ export function handler() {
 **Example with data loading:**
 
 ```javascript
-import { readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs'
 
-const data = readFileSync('./data.txt', 'utf8');
+const data = readFileSync('./data.txt', 'utf8')
 
 export function handler() {
   // Process data
-  const result = someExpensiveOperation(data);
+  const result = someExpensiveOperation(data)
 
   return true // Must return truthy value
 }
@@ -140,6 +140,7 @@ node --run bench -- --benchmark=my-benchmark
 ```
 
 The runner will automatically:
+
 1. Generate runtime-specific files from templates
 2. Embed necessary files in the workerd config
 3. Start all servers and run the benchmark
