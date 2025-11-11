@@ -30,8 +30,9 @@ jobs:
 
       - name: Install hyperfine
         run: |
-          wget https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine_1.18.0_amd64.deb
-          sudo dpkg -i hyperfine_1.18.0_amd64.deb
+          HYPERFINE_VERSION=$(curl -s https://api.github.com/repos/sharkdp/hyperfine/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")')
+          wget https://github.com/sharkdp/hyperfine/releases/download/${HYPERFINE_VERSION}/hyperfine_${HYPERFINE_VERSION#v}_amd64.deb
+          sudo dpkg -i hyperfine_${HYPERFINE_VERSION#v}_amd64.deb
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
