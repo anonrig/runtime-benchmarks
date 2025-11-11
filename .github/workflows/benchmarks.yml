@@ -19,7 +19,7 @@ jobs:
           node-version: 'latest'
 
       - name: Setup Deno
-        uses: denoland/setup-deno@v2.0.0
+        uses: denoland/setup-deno@v2.0.3
         with:
           deno-version: 'latest'
 
