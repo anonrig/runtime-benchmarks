@@ -67,7 +67,11 @@ process.on('exit', () => {
   cleanup()
 })
 
-async function waitForPort(port: number, maxAttempts = 30): Promise<void> {
+async function waitForPort(
+  port: number,
+  runtime: string,
+  maxAttempts = 50
+): Promise<void> {
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const { promise, resolve, reject } = Promise.withResolvers()
@@ -78,12 +82,18 @@ async function waitForPort(port: number, maxAttempts = 30): Promise<void> {
       })
       socket.on('error', reject)
       await promise
+      console.log(`[${runtime}] Port ${port} is ready`)
       return // Successfully connected, exit the function
     } catch {
-      await setTimeout(100)
+      if (i % 10 === 0 && i > 0) {
+        console.log(
+          `[${runtime}] Still waiting for port ${port}... (${i}/${maxAttempts})`
+        )
+      }
+      await setTimeout(200)
     }
   }
-  throw new Error(`Port ${port} did not become available`)
+  throw new Error(`Port ${port} did not become available for ${runtime}`)
 }
 
 async function startServer(
@@ -94,7 +104,7 @@ async function startServer(
   console.log(`Starting server for ${runtime}`)
 
   const spawnOptions = {
-    stdio: ['ignore', 'ignore', 'pipe'] as const,
+    stdio: ['ignore', 'pipe', 'pipe'] as const,
     detached: false,
     cwd: cwd,
   }
@@ -109,6 +119,9 @@ async function startServer(
         '.bin',
         'workerd'
       )
+      console.log(`[workerd] Using binary at: ${workerdPath}`)
+      console.log(`[workerd] CWD: ${cwd}`)
+      console.log(`[workerd] Serving: ${filePath}`)
       proc = spawn(workerdPath, ['serve', filePath], spawnOptions)
       processes.workerd = proc
       break
@@ -130,6 +143,11 @@ async function startServer(
       break
   }
 
+  // Capture stdout for debugging
+  proc!.stdout?.on('data', (data) => {
+    console.log(`[${runtime} stdout]:`, data.toString())
+  })
+
   // Capture stderr for debugging
   proc!.stderr?.on('data', (data) => {
     console.error(`[${runtime} stderr]:`, data.toString())
@@ -148,7 +166,17 @@ async function startServer(
     }
   })
 
-  await waitForPort(config[runtime].port)
+  // Give the process a moment to start
+  await setTimeout(500)
+
+  // Check if process is still running
+  if (proc!.exitCode !== null) {
+    throw new Error(
+      `[${runtime}] Process exited immediately with code ${proc!.exitCode}`
+    )
+  }
+
+  await waitForPort(config[runtime].port, runtime)
 }
 
 let benchmark = values.benchmark
