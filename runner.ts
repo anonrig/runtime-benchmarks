@@ -45,10 +45,30 @@ function cleanup() {
     if (proc && proc.pid) {
       try {
         proc.kill('SIGTERM')
+        // Give a moment, then force kill if still running
+        try {
+          proc.kill('SIGKILL')
+        } catch {
+          // Process already terminated
+        }
       } catch (error) {
         console.error(`Failed to kill ${runtime} process:`, error)
       }
     }
+  }
+  // Clear the processes record for the next benchmark
+  for (const key of Object.keys(processes)) {
+    delete processes[key as keyof typeof processes]
+  }
+
+  // Force kill any processes still holding the ports
+  try {
+    execSync(
+      'fuser -k 3000/tcp 3001/tcp 3002/tcp 3003/tcp 2>/dev/null || true',
+      { stdio: 'ignore' }
+    )
+  } catch {
+    // Ignore errors
   }
 }
 
@@ -128,7 +148,7 @@ async function startServer(
     case 'deno':
       proc = spawn(
         'deno',
-        ['run', '--allow-net', '--allow-read', filePath],
+        ['run', '--allow-net', '--allow-read', '--allow-env', filePath],
         spawnOptions
       )
       processes.deno = proc
@@ -258,6 +278,9 @@ async function runBenchmark(benchmarkPath: string) {
   execSync(command, { stdio: ['inherit', 'inherit', 'inherit'] })
 
   cleanup()
+
+  // Wait for ports to be released before the next benchmark
+  await setTimeout(5000)
 }
 
 function findBenchmarkDirectories(): string[] {
@@ -296,6 +319,48 @@ function findBenchmarkDirectories(): string[] {
   return benchmarkDirs.sort()
 }
 
+function generateResultsMarkdown(benchmarkDirs: string[]): string {
+  let markdown = `# Runtime Benchmarks Results\n\n`
+  markdown += `Generated on: ${new Date().toISOString()}\n\n`
+  markdown += `## Summary\n\n`
+  markdown += `Comparing performance across: workerd, deno, bun, node\n\n`
+
+  for (const dir of benchmarkDirs) {
+    const resultsPath = path.join(dir, 'benchmark-results.json')
+    const markdownPath = path.join(dir, 'benchmark-results.md')
+
+    markdown += `## ${dir}\n\n`
+
+    try {
+      // Read the markdown results
+      if (existsSync(markdownPath)) {
+        const mdContent = readFileSync(markdownPath, 'utf8')
+        markdown += mdContent + '\n\n'
+      }
+
+      // Add JSON summary
+      if (existsSync(resultsPath)) {
+        const results = JSON.parse(readFileSync(resultsPath, 'utf8'))
+        if (results.results && results.results.length > 0) {
+          const sorted = [...results.results].sort(
+            (a: any, b: any) => a.mean - b.mean
+          )
+          const fastest = sorted[0]
+          const slowest = sorted[sorted.length - 1]
+          markdown += `**Fastest:** ${fastest.command} (${(fastest.mean * 1000).toFixed(2)}ms)\n\n`
+          markdown += `**Slowest:** ${slowest.command} (${(slowest.mean * 1000).toFixed(2)}ms)\n\n`
+        }
+      }
+    } catch (error) {
+      markdown += `_Results not available_\n\n`
+    }
+
+    markdown += `---\n\n`
+  }
+
+  return markdown
+}
+
 if (benchmark === 'all') {
   const benchmarkDirs = findBenchmarkDirectories()
 
@@ -311,6 +376,11 @@ if (benchmark === 'all') {
   for (const dir of benchmarkDirs) {
     await runBenchmark(dir)
   }
+
+  // Generate consolidated results
+  const resultsMarkdown = generateResultsMarkdown(benchmarkDirs)
+  writeFileSync('RESULTS.md', resultsMarkdown, 'utf8')
+  console.log('\nResults written to RESULTS.md')
 } else {
   await runBenchmark(benchmark)
 }

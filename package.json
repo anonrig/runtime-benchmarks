@@ -15,9 +15,12 @@
   "description": "",
   "devDependencies": {
     "@types/node": "^24.10.0",
+    "esbuild": "^0.27.1",
     "prettier": "^3.6.2"
   },
   "dependencies": {
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
     "workerd": "^1.20251111.0"
   }
 }
