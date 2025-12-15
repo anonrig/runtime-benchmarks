@@ -14,7 +14,7 @@
   "license": "MIT",
   "description": "",
   "devDependencies": {
-    "@types/node": "^24.10.1",
+    "@types/node": "^25.0.2",
     "esbuild": "^0.27.1",
     "prettier": "^3.7.4"
   },
