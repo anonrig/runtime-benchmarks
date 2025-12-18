@@ -1,6 +1,0 @@
-{
-  "bun": { "port": 3000 },
-  "deno": { "port": 3001 },
-  "node": { "port": 3002 },
-  "workerd": { "port": 3003 }
-}

@@ -11,15 +11,39 @@ import {
 } from 'node:fs'
 import assert from 'node:assert/strict'
 import path from 'node:path'
-import { createConnection } from 'node:net'
+import { createConnection, createServer } from 'node:net'
 import { setTimeout } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-const config = JSON.parse(readFileSync('./config.json', 'utf8'))
-const runtimes = ['workerd', 'deno', 'bun', 'node']
+const runtimes = ['workerd', 'deno', 'bun', 'node'] as const
+
+// Find an available port by binding to port 0
+async function getAvailablePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer()
+    server.listen(0, () => {
+      const address = server.address()
+      if (address && typeof address === 'object') {
+        const port = address.port
+        server.close(() => resolve(port))
+      } else {
+        server.close(() => reject(new Error('Could not get port')))
+      }
+    })
+    server.on('error', reject)
+  })
+}
+
+// Dynamic port assignments for each runtime
+const ports: Record<(typeof runtimes)[number], number> = {
+  workerd: 0,
+  deno: 0,
+  bun: 0,
+  node: 0,
+}
 
 type Benchmark = {
   directory_name: string
@@ -59,16 +83,6 @@ function cleanup() {
   // Clear the processes record for the next benchmark
   for (const key of Object.keys(processes)) {
     delete processes[key as keyof typeof processes]
-  }
-
-  // Force kill any processes still holding the ports
-  try {
-    execSync(
-      'fuser -k 3000/tcp 3001/tcp 3002/tcp 3003/tcp 2>/dev/null || true',
-      { stdio: 'ignore' }
-    )
-  } catch {
-    // Ignore errors
   }
 }
 
@@ -196,7 +210,7 @@ async function startServer(
     )
   }
 
-  await waitForPort(config[runtime].port, runtime)
+  await waitForPort(ports[runtime], runtime)
 }
 
 let benchmark = values.benchmark
@@ -210,14 +224,42 @@ async function runBenchmark(benchmarkPath: string) {
   console.log(`Running benchmark: ${benchmarkPath}`)
   console.log('='.repeat(60) + '\n')
 
+  // Allocate random available ports for each runtime
+  for (const runtime of runtimes) {
+    ports[runtime] = await getAvailablePort()
+  }
+  console.log(`Allocated ports: ${JSON.stringify(ports)}`)
+
+  // Write dynamic config.json for node/bun/deno templates to read
+  const runtimeConfig = {
+    bun: { port: ports.bun },
+    deno: { port: ports.deno },
+    node: { port: ports.node },
+    workerd: { port: ports.workerd },
+  }
+  writeFileSync(
+    path.join(benchmarkPath, 'runtime-config.json'),
+    JSON.stringify(runtimeConfig, null, 2)
+  )
+
   const exportJson = path.join(benchmarkPath, 'benchmark-results.json')
   const exportMarkdown = path.join(benchmarkPath, 'benchmark-results.md')
 
   let command = `hyperfine --warmup 50 --export-json ${exportJson} --export-markdown ${exportMarkdown} `
 
+  // Check if data.bin exists for POST benchmarks
+  const dataBinPath = path.join(benchmarkPath, 'data.bin')
+  const hasDataBin = existsSync(dataBinPath)
+  if (hasDataBin) {
+    console.log(`Found data.bin, will POST data to servers`)
+  }
+
   // Generate workerd config with dynamic file embedding
   const destination = path.join(benchmarkPath, 'workerd.config.capnp')
   let baseCapnp = readFileSync('./base.capnp', 'utf8')
+
+  // Replace port placeholder with actual port
+  baseCapnp = baseCapnp.replace('{PORT}', String(ports.workerd))
 
   // Always embed benchmark.js as an esModule
   let additionalFiles =
@@ -266,8 +308,10 @@ async function runBenchmark(benchmarkPath: string) {
       await startServer(`./${runtime}.js`, runtime, benchmarkPath)
     }
 
-    const port = config[runtime].port
-    command += ` -n "${runtime}" "curl http://localhost:${port}/"`
+    const curlArgs = hasDataBin
+      ? `--data-binary @${dataBinPath}`
+      : ''
+    command += ` -n "${runtime}" "curl ${curlArgs} http://localhost:${ports[runtime]}/ -s -o /dev/null"`
   }
 
   console.log('All servers ready!')
