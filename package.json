@@ -21,6 +21,6 @@
   "dependencies": {
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "workerd": "^1.20251213.0"
+    "workerd": "^1.20251221.0"
   }
 }
