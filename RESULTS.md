@@ -1,24 +1,40 @@
 # Runtime Benchmarks Results
 
-Generated on: 2025-12-04T16:16:49.428Z
+Generated on: 2026-01-02T17:54:15.217Z
 
 ## Summary
 
 Comparing performance across: workerd, deno, bun, node
 
+## http-transform-stream
+
+| Command | Mean [s] | Min [s] | Max [s] | Relative |
+|:---|---:|---:|---:|---:|
+| `workerd` | 1.117 ± 0.005 | 1.107 | 1.123 | 39.70 ± 3.02 |
+| `deno` | 0.073 ± 0.007 | 0.032 | 0.079 | 2.60 ± 0.32 |
+| `bun` | 0.028 ± 0.002 | 0.023 | 0.034 | 1.00 |
+| `node` | 0.032 ± 0.002 | 0.027 | 0.036 | 1.13 ± 0.11 |
+
+
+**Fastest:** bun (28.13ms)
+
+**Slowest:** workerd (1116.83ms)
+
+---
+
 ## next-ssr
 
 | Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `workerd` | 15.0 ± 2.0 | 10.6 | 19.6 | 1.00 |
-| `deno` | 15.1 ± 1.8 | 10.9 | 21.1 | 1.01 ± 0.18 |
-| `bun` | 15.3 ± 1.9 | 10.9 | 21.7 | 1.02 ± 0.18 |
-| `node` | 15.1 ± 1.8 | 11.2 | 19.8 | 1.01 ± 0.18 |
+| `workerd` | 13.2 ± 1.7 | 9.1 | 19.0 | 1.00 |
+| `deno` | 14.0 ± 1.7 | 10.4 | 18.8 | 1.06 ± 0.19 |
+| `bun` | 14.1 ± 1.7 | 10.3 | 19.0 | 1.07 ± 0.19 |
+| `node` | 14.3 ± 1.8 | 9.1 | 19.1 | 1.08 ± 0.20 |
 
 
-**Fastest:** workerd (14.97ms)
+**Fastest:** workerd (13.24ms)
 
-**Slowest:** bun (15.29ms)
+**Slowest:** node (14.29ms)
 
 ---
 
@@ -26,15 +42,15 @@ Comparing performance across: workerd, deno, bun, node
 
 | Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `workerd` | 85.5 ± 29.4 | 63.5 | 184.0 | 1.28 ± 0.48 |
-| `deno` | 118.3 ± 37.4 | 95.4 | 225.5 | 1.78 ± 0.62 |
-| `bun` | 66.6 ± 9.4 | 56.0 | 102.2 | 1.00 |
-| `node` | 104.3 ± 24.0 | 84.4 | 180.1 | 1.57 ± 0.42 |
+| `workerd` | 79.6 ± 28.7 | 57.8 | 175.4 | 1.04 ± 0.40 |
+| `deno` | 105.4 ± 31.3 | 85.3 | 201.6 | 1.37 ± 0.45 |
+| `bun` | 76.7 ± 10.3 | 63.7 | 112.4 | 1.00 |
+| `node` | 96.4 ± 24.0 | 77.4 | 183.9 | 1.26 ± 0.36 |
 
 
-**Fastest:** bun (66.55ms)
+**Fastest:** bun (76.65ms)
 
-**Slowest:** deno (118.33ms)
+**Slowest:** deno (105.36ms)
 
 ---
 
@@ -42,15 +58,31 @@ Comparing performance across: workerd, deno, bun, node
 
 | Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `workerd` | 10.9 ± 1.1 | 7.7 | 14.4 | 1.00 |
-| `deno` | 11.5 ± 1.3 | 8.3 | 15.2 | 1.05 ± 0.16 |
-| `bun` | 11.3 ± 1.2 | 8.2 | 15.1 | 1.03 ± 0.15 |
-| `node` | 11.4 ± 1.1 | 8.7 | 16.3 | 1.04 ± 0.15 |
+| `workerd` | 10.1 ± 1.2 | 6.9 | 13.6 | 1.02 ± 0.16 |
+| `deno` | 10.3 ± 1.1 | 7.3 | 13.2 | 1.03 ± 0.15 |
+| `bun` | 9.9 ± 1.0 | 7.4 | 12.8 | 1.00 |
+| `node` | 10.5 ± 1.1 | 7.6 | 13.1 | 1.05 ± 0.15 |
 
 
-**Fastest:** workerd (10.94ms)
+**Fastest:** bun (9.95ms)
 
-**Slowest:** deno (11.49ms)
+**Slowest:** node (10.47ms)
+
+---
+
+## transform-stream
+
+| Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
+|:---|---:|---:|---:|---:|
+| `workerd` | 20.8 ± 2.4 | 15.2 | 28.7 | 1.42 ± 0.25 |
+| `deno` | 16.9 ± 2.5 | 10.8 | 24.4 | 1.15 ± 0.23 |
+| `bun` | 14.7 ± 1.9 | 10.8 | 22.0 | 1.00 |
+| `node` | 15.9 ± 1.7 | 11.8 | 21.6 | 1.08 ± 0.18 |
+
+
+**Fastest:** bun (14.70ms)
+
+**Slowest:** workerd (20.82ms)
 
 ---
 
@@ -58,15 +90,15 @@ Comparing performance across: workerd, deno, bun, node
 
 | Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `workerd` | 77.4 ± 6.7 | 63.1 | 96.6 | 1.98 ± 0.19 |
-| `deno` | 86.5 ± 3.2 | 82.6 | 95.1 | 2.21 ± 0.12 |
-| `bun` | 74.5 ± 5.2 | 66.6 | 90.6 | 1.91 ± 0.15 |
-| `node` | 39.1 ± 1.6 | 34.7 | 43.1 | 1.00 |
+| `workerd` | 73.0 ± 2.5 | 67.5 | 76.9 | 1.96 ± 0.10 |
+| `deno` | 84.6 ± 2.4 | 80.0 | 88.4 | 2.27 ± 0.10 |
+| `bun` | 68.2 ± 2.1 | 64.7 | 75.3 | 1.83 ± 0.09 |
+| `node` | 37.3 ± 1.3 | 34.0 | 40.1 | 1.00 |
 
 
-**Fastest:** node (39.10ms)
+**Fastest:** node (37.33ms)
 
-**Slowest:** deno (86.47ms)
+**Slowest:** deno (84.60ms)
 
 ---
 
@@ -74,15 +106,15 @@ Comparing performance across: workerd, deno, bun, node
 
 | Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `workerd` | 11.6 ± 1.2 | 8.7 | 14.8 | 1.00 ± 0.15 |
-| `deno` | 12.0 ± 1.3 | 9.0 | 18.0 | 1.04 ± 0.15 |
-| `bun` | 11.6 ± 1.2 | 8.5 | 16.8 | 1.00 |
-| `node` | 12.1 ± 1.2 | 8.6 | 16.6 | 1.04 ± 0.15 |
+| `workerd` | 10.2 ± 1.1 | 7.2 | 13.6 | 1.00 |
+| `deno` | 11.6 ± 1.3 | 8.5 | 17.2 | 1.14 ± 0.17 |
+| `bun` | 11.1 ± 1.2 | 8.0 | 14.6 | 1.09 ± 0.17 |
+| `node` | 11.3 ± 1.1 | 8.9 | 14.7 | 1.10 ± 0.16 |
 
 
-**Fastest:** bun (11.57ms)
+**Fastest:** workerd (10.21ms)
 
-**Slowest:** node (12.05ms)
+**Slowest:** deno (11.65ms)
 
 ---
 
