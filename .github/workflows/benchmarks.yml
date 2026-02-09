@@ -43,7 +43,7 @@ jobs:
         run: pnpm install
 
       - name: Run benchmarks with CodSpeed
-        uses: CodSpeedHQ/action@v4.8.2
+        uses: CodSpeedHQ/action@v4.10.5
         with:
           run: pnpm run bench:all
           token: ${{ secrets.CODSPEED_TOKEN }}
