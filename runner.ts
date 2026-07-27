@@ -18,7 +18,9 @@ import { fileURLToPath } from 'node:url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-const runtimes = ['workerd', 'deno', 'bun', 'node'] as const
+type Runtime = 'workerd' | 'workerd-dev' | 'deno' | 'bun' | 'node'
+
+const runtimes: Runtime[] = ['workerd', 'deno', 'bun', 'node']
 
 // Find an available port by binding to port 0
 async function getAvailablePort(): Promise<number> {
@@ -38,8 +40,9 @@ async function getAvailablePort(): Promise<number> {
 }
 
 // Dynamic port assignments for each runtime
-const ports: Record<(typeof runtimes)[number], number> = {
+const ports: Record<Runtime, number> = {
   workerd: 0,
+  'workerd-dev': 0,
   deno: 0,
   bun: 0,
   node: 0,
@@ -47,7 +50,7 @@ const ports: Record<(typeof runtimes)[number], number> = {
 
 type Benchmark = {
   directory_name: string
-  runtime: 'workerd' | 'deno' | 'bun' | 'node'
+  runtime: Runtime
 }
 
 const { values } = parseArgs({
@@ -56,12 +59,68 @@ const { values } = parseArgs({
     benchmark: {
       type: 'string',
     },
+    'workerd-binary': {
+      type: 'string',
+    },
+    runtimes: {
+      type: 'string',
+    },
   },
   strict: true,
   allowPositionals: false,
 })
 
-const processes: Record<Benchmark['runtime'], ChildProcess> = {}
+// When --workerd-binary is provided, insert workerd-dev right after workerd
+// so hyperfine compares the npm release against the local dev build.
+if (values['workerd-binary']) {
+  runtimes.splice(1, 0, 'workerd-dev')
+}
+
+// When --runtimes is provided, filter to only the requested runtimes.
+// e.g. --runtimes=workerd,workerd-dev,node
+if (values.runtimes) {
+  const requested = values.runtimes.split(',').map((r) => r.trim()) as Runtime[]
+  const invalid = requested.filter((r) => !runtimes.includes(r))
+  if (invalid.length > 0) {
+    console.error(
+      `Unknown runtime(s): ${invalid.join(', ')}. Available: ${runtimes.join(', ')}`
+    )
+    process.exit(1)
+  }
+  // Keep only requested runtimes, preserving original order
+  runtimes.splice(0, runtimes.length, ...runtimes.filter((r) => requested.includes(r)))
+}
+
+const processes: Partial<Record<Runtime, ChildProcess>> = {}
+
+function getRuntimeVersion(runtime: Runtime): string {
+  try {
+    switch (runtime) {
+      case 'workerd': {
+        const workerdPath = path.join(__dirname, 'node_modules', '.bin', 'workerd')
+        return execSync(`${workerdPath} --version`, { encoding: 'utf8' }).trim()
+      }
+      case 'workerd-dev': {
+        const workerdDevPath = path.resolve(values['workerd-binary']!)
+        return execSync(`${workerdDevPath} --version`, { encoding: 'utf8' }).trim()
+      }
+      case 'node':
+        return execSync('node --version', { encoding: 'utf8' }).trim()
+      case 'deno':
+        return execSync('deno --version', { encoding: 'utf8' }).trim().split('\n')[0]
+      case 'bun':
+        return execSync('bun --version', { encoding: 'utf8' }).trim()
+    }
+  } catch {
+    return 'unknown'
+  }
+}
+
+const runtimeVersions: Partial<Record<Runtime, string>> = {}
+for (const runtime of runtimes) {
+  runtimeVersions[runtime] = getRuntimeVersion(runtime)
+  console.log(`[${runtime}] version: ${runtimeVersions[runtime]}`)
+}
 
 function cleanup() {
   console.log('\nCleaning up processes...')
@@ -132,7 +191,7 @@ async function waitForPort(
 
 async function startServer(
   filePath: string,
-  runtime: Benchmark['runtime'],
+  runtime: Runtime,
   cwd?: string
 ): void {
   console.log(`Starting server for ${runtime}`)
@@ -146,7 +205,7 @@ async function startServer(
   let proc: ChildProcess
 
   switch (runtime) {
-    case 'workerd':
+    case 'workerd': {
       const workerdPath = path.join(
         __dirname,
         'node_modules',
@@ -159,6 +218,16 @@ async function startServer(
       proc = spawn(workerdPath, ['serve', filePath], spawnOptions)
       processes.workerd = proc
       break
+    }
+    case 'workerd-dev': {
+      const workerdDevPath = path.resolve(values['workerd-binary']!)
+      console.log(`[workerd-dev] Using binary at: ${workerdDevPath}`)
+      console.log(`[workerd-dev] CWD: ${cwd}`)
+      console.log(`[workerd-dev] Serving: ${filePath}`)
+      proc = spawn(workerdDevPath, ['serve', filePath], spawnOptions)
+      processes['workerd-dev'] = proc
+      break
+    }
     case 'deno':
       proc = spawn(
         'deno',
@@ -254,18 +323,10 @@ async function runBenchmark(benchmarkPath: string) {
     console.log(`Found data.bin, will POST data to servers`)
   }
 
-  // Generate workerd config with dynamic file embedding
-  const destination = path.join(benchmarkPath, 'workerd.config.capnp')
-  let baseCapnp = readFileSync('./base.capnp', 'utf8')
-
-  // Replace port placeholder with actual port
-  baseCapnp = baseCapnp.replace('{PORT}', String(ports.workerd))
-
-  // Always embed benchmark.js as an esModule
+  // Build the list of additional embedded files for workerd configs
   let additionalFiles =
     ',\n    (name = "benchmark.js", esModule = embed "benchmark.js")'
 
-  // Check if files.json exists in the benchmark directory
   const filesJsonPath = path.join(benchmarkPath, 'files.json')
   try {
     const files = JSON.parse(readFileSync(filesJsonPath, 'utf8'))
@@ -273,26 +334,33 @@ async function runBenchmark(benchmarkPath: string) {
       additionalFiles +=
         ',\n    ' +
         files
-          .map((file) => `(name = "${file}", text = embed "${file}")`)
+          .map((file: string) => `(name = "${file}", text = embed "${file}")`)
           .join(',\n    ')
     }
   } catch (error) {
     // No files.json or invalid JSON, no additional files needed
   }
 
-  // Replace the comment line with actual embedded files
-  baseCapnp = baseCapnp.replace(
-    '    # Additional files will be inserted here by the runner',
-    additionalFiles
-  )
+  // Generate a workerd capnp config for each workerd variant (workerd + workerd-dev)
+  for (const rt of runtimes.filter(
+    (r) => r === 'workerd' || r === 'workerd-dev'
+  )) {
+    const destination = path.join(benchmarkPath, `${rt}.config.capnp`)
+    let capnp = readFileSync('./base.capnp', 'utf8')
+    capnp = capnp.replace('{PORT}', String(ports[rt]))
+    capnp = capnp.replace(
+      '    # Additional files will be inserted here by the runner',
+      additionalFiles
+    )
+    try {
+      unlinkSync(destination)
+    } catch (error) {}
+    writeFileSync(destination, capnp, 'utf8')
+  }
 
-  try {
-    unlinkSync(destination)
-  } catch (error) {}
-  writeFileSync(destination, baseCapnp, 'utf8')
-
-  // Copy template files for each runtime
+  // Copy template files for each runtime (workerd-dev shares workerd.js)
   for (const runtime of runtimes) {
+    if (runtime === 'workerd-dev') continue
     const templatePath = `./templates/${runtime}.template.js`
     const destinationPath = path.join(benchmarkPath, `${runtime}.js`)
     try {
@@ -302,8 +370,8 @@ async function runBenchmark(benchmarkPath: string) {
   }
 
   for (const runtime of runtimes) {
-    if (runtime === 'workerd') {
-      await startServer('./workerd.config.capnp', runtime, benchmarkPath)
+    if (runtime === 'workerd' || runtime === 'workerd-dev') {
+      await startServer(`./${runtime}.config.capnp`, runtime, benchmarkPath)
     } else {
       await startServer(`./${runtime}.js`, runtime, benchmarkPath)
     }
@@ -311,7 +379,7 @@ async function runBenchmark(benchmarkPath: string) {
     const curlArgs = hasDataBin
       ? `--data-binary @${dataBinPath}`
       : ''
-    command += ` -n "${runtime}" "curl ${curlArgs} http://localhost:${ports[runtime]}/ -s -o /dev/null"`
+    command += ` -n "${runtime}" "curl -H 'Expect:' ${curlArgs} http://localhost:${ports[runtime]}/ -s -o /dev/null"`
   }
 
   console.log('All servers ready!')
@@ -367,7 +435,11 @@ function generateResultsMarkdown(benchmarkDirs: string[]): string {
   let markdown = `# Runtime Benchmarks Results\n\n`
   markdown += `Generated on: ${new Date().toISOString()}\n\n`
   markdown += `## Summary\n\n`
-  markdown += `Comparing performance across: workerd, deno, bun, node\n\n`
+  markdown += `### Runtimes\n\n`
+  for (const runtime of runtimes) {
+    markdown += `- **${runtime}**: ${runtimeVersions[runtime] ?? 'unknown'}\n`
+  }
+  markdown += `\n`
 
   for (const dir of benchmarkDirs) {
     const resultsPath = path.join(dir, 'benchmark-results.json')
