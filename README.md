@@ -4,23 +4,28 @@ Benchmarking tool to compare performance across different JavaScript runtimes: N
 
 ## Requirements
 
-You need to install `hyperfine` to run the benchmarks.
+You need to install `hyperfine` to run the latency benchmarks, and `oha` to
+run the throughput (RPS) benchmarks.
 
 **macOS:**
 
 ```shell
-brew install hyperfine
+brew install hyperfine oha
 ```
 
 **Linux:**
 
 ```shell
-# Ubuntu/Debian
+# Ubuntu/Debian (oha: use a binary from
+# https://github.com/hatoo/oha/releases, or `cargo install oha`)
 apt install hyperfine
 
 # Arch
-pacman -S hyperfine
+pacman -S hyperfine oha
 ```
+
+The `react-ssr` benchmark needs Bun 1.4 or later; older versions cannot parse
+React 19.3's server renderer.
 
 ## Installation
 
@@ -50,9 +55,28 @@ This will:
    - `benchmark-results.json` - Machine-readable JSON format
    - `benchmark-results.md` - Human-readable markdown table
 
+### Measuring throughput (RPS)
+
+The default mode times one request at a time, which mostly measures how long
+`curl` takes to start. To measure how many requests per second each runtime
+serves under concurrent load, use the `rps` mode:
+
+```shell
+node --run bench:rps -- --benchmark=hello-world
+```
+
+For each runtime in turn, this runs `oha` for a 3 second warmup and then a
+10 second measurement with 50 connections, and writes the results to
+`rps-results.json` and `rps-results.md` in the benchmark directory. Pass
+`--duration=30s` or `--connections=100` to change the load. The run fails if
+any request errors or gets a non-200 response. `hello-world` does no work in
+its handler, so it measures the runtimes' HTTP serving overhead; any other
+benchmark can be run in this mode too.
+
 ## Available Scripts
 
 - `node --run bench -- --benchmark=<name>` - Run a specific benchmark
+- `node --run bench:rps -- --benchmark=<name>` - Measure a benchmark's requests per second
 - `node --run format` - Format code with Prettier
 
 ## Configuration
