@@ -14,6 +14,7 @@ import path from 'node:path'
 import { createConnection, createServer } from 'node:net'
 import { setTimeout } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -147,12 +148,12 @@ async function startServer(
 
   switch (runtime) {
     case 'workerd':
-      const workerdPath = path.join(
-        __dirname,
-        'node_modules',
-        '.bin',
+      // Spawn the native binary itself rather than node_modules/.bin/workerd.
+      // That shim is a shell script that runs workerd as a child, so killing
+      // it in cleanup() would leave workerd running.
+      const workerdPath: string = createRequire(import.meta.url)(
         'workerd'
-      )
+      ).default
       console.log(`[workerd] Using binary at: ${workerdPath}`)
       console.log(`[workerd] CWD: ${cwd}`)
       console.log(`[workerd] Serving: ${filePath}`)
