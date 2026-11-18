@@ -21,6 +21,11 @@ const __dirname = path.dirname(__filename)
 
 const runtimes = ['workerd', 'deno', 'bun', 'node'] as const
 
+// The installed workerd package exports its native binary's path and the
+// newest compatibility date that binary supports.
+const workerdPackage: { default: string; compatibilityDate: string } =
+  createRequire(import.meta.url)('workerd')
+
 // Find an available port by binding to port 0
 async function getAvailablePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -170,9 +175,7 @@ async function startServer(
       // Spawn the native binary itself rather than node_modules/.bin/workerd.
       // That shim is a shell script that runs workerd as a child, so killing
       // it in cleanup() would leave workerd running.
-      const workerdPath: string = createRequire(import.meta.url)(
-        'workerd'
-      ).default
+      const workerdPath = workerdPackage.default
       console.log(`[workerd] Using binary at: ${workerdPath}`)
       console.log(`[workerd] CWD: ${cwd}`)
       console.log(`[workerd] Serving: ${filePath}`)
@@ -393,6 +396,13 @@ async function runBenchmark(benchmarkPath: string) {
 
   // Replace port placeholder with actual port
   baseCapnp = baseCapnp.replace('{PORT}', String(ports.workerd))
+
+  // Run with the newest compatibility date, so that workerd is measured with
+  // its current behavior rather than with flags kept for old Workers.
+  baseCapnp = baseCapnp.replace(
+    '{COMPATIBILITY_DATE}',
+    workerdPackage.compatibilityDate
+  )
 
   // Embed benchmark.js as an esModule. A benchmark whose own templates
   // serve requests directly need not have one.
