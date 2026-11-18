@@ -394,9 +394,11 @@ async function runBenchmark(benchmarkPath: string) {
   // Replace port placeholder with actual port
   baseCapnp = baseCapnp.replace('{PORT}', String(ports.workerd))
 
-  // Always embed benchmark.js as an esModule
-  let additionalFiles =
-    ',\n    (name = "benchmark.js", esModule = embed "benchmark.js")'
+  // Embed benchmark.js as an esModule. A benchmark whose own templates
+  // serve requests directly need not have one.
+  let additionalFiles = existsSync(path.join(benchmarkPath, 'benchmark.js'))
+    ? ',\n    (name = "benchmark.js", esModule = embed "benchmark.js")'
+    : ''
 
   // Check if files.json exists in the benchmark directory
   const filesJsonPath = path.join(benchmarkPath, 'files.json')
@@ -424,9 +426,17 @@ async function runBenchmark(benchmarkPath: string) {
   } catch (error) {}
   writeFileSync(destination, baseCapnp, 'utf8')
 
-  // Copy template files for each runtime
+  // Copy template files for each runtime, preferring the benchmark's own
+  // templates/<runtime>.template.js over the shared one.
   for (const runtime of runtimes) {
-    const templatePath = `./templates/${runtime}.template.js`
+    const ownTemplatePath = path.join(
+      benchmarkPath,
+      'templates',
+      `${runtime}.template.js`
+    )
+    const templatePath = existsSync(ownTemplatePath)
+      ? ownTemplatePath
+      : `./templates/${runtime}.template.js`
     const destinationPath = path.join(benchmarkPath, `${runtime}.js`)
     try {
       unlinkSync(destinationPath)
@@ -483,9 +493,11 @@ function findBenchmarkDirectories(): string[] {
       continue
     }
 
-    // Check if it contains benchmark.js
-    const benchmarkFile = path.join(fullPath, 'benchmark.js')
-    if (existsSync(benchmarkFile)) {
+    // Check if it contains benchmark.js or its own server templates
+    if (
+      existsSync(path.join(fullPath, 'benchmark.js')) ||
+      existsSync(path.join(fullPath, 'templates'))
+    ) {
       benchmarkDirs.push(entry)
     }
   }

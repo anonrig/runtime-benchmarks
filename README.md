@@ -69,9 +69,17 @@ For each runtime in turn, this runs `oha` for a 3 second warmup and then a
 10 second measurement with 50 connections, and writes the results to
 `rps-results.json` and `rps-results.md` in the benchmark directory. Pass
 `--duration=30s` or `--connections=100` to change the load. The run fails if
-any request errors or gets a non-200 response. `hello-world` does no work in
-its handler, so it measures the runtimes' HTTP serving overhead; any other
-benchmark can be run in this mode too.
+any request errors or gets a non-200 response. Any benchmark can be run in this
+mode. Two are meant for it:
+
+- `hello-world` does no work in its handler, so it measures each runtime's
+  HTTP serving overhead plus the shared templates' cost of handing the request
+  to `handler()`. On Node that includes building a web `Request` from every
+  `node:http` request, which costs Node noticeably more than the other
+  runtimes.
+- `hello-world-bare` answers from each runtime's native server API with no
+  template or handler in between (`node:http`, `Deno.serve`, `Bun.serve`, a
+  workerd `fetch` handler), so it measures the HTTP server alone.
 
 ## Available Scripts
 
@@ -181,6 +189,11 @@ When you run a benchmark:
 3. **All files are cleaned up**: Generated files are gitignored and automatically regenerated on each run
 
 This means you only maintain your benchmark logic in `benchmark.js` - no need to write boilerplate server code for each runtime!
+
+A benchmark that needs different server code for a runtime can provide its own
+`templates/<runtime>.template.js`, which the runner uses instead of the shared
+one. A benchmark whose templates serve requests themselves, like
+`hello-world-bare`, does not need a `benchmark.js`.
 
 ## Example: URL Parsing Benchmark
 
