@@ -4,23 +4,28 @@ Benchmarking tool to compare performance across different JavaScript runtimes: N
 
 ## Requirements
 
-You need to install `hyperfine` to run the benchmarks.
+You need to install `hyperfine` to run the latency benchmarks, and `oha` to
+run the throughput (RPS) benchmarks.
 
 **macOS:**
 
 ```shell
-brew install hyperfine
+brew install hyperfine oha
 ```
 
 **Linux:**
 
 ```shell
-# Ubuntu/Debian
+# Ubuntu/Debian (oha: use a binary from
+# https://github.com/hatoo/oha/releases, or `cargo install oha`)
 apt install hyperfine
 
 # Arch
-pacman -S hyperfine
+pacman -S hyperfine oha
 ```
+
+The `react-ssr` benchmark needs Bun 1.4 or later; older versions cannot parse
+React 19.3's server renderer.
 
 ## Installation
 
@@ -50,9 +55,36 @@ This will:
    - `benchmark-results.json` - Machine-readable JSON format
    - `benchmark-results.md` - Human-readable markdown table
 
+### Measuring throughput (RPS)
+
+The default mode times one request at a time, which mostly measures how long
+`curl` takes to start. To measure how many requests per second each runtime
+serves under concurrent load, use the `rps` mode:
+
+```shell
+node --run bench:rps -- --benchmark=hello-world
+```
+
+For each runtime in turn, this runs `oha` for a 3 second warmup and then a
+10 second measurement with 50 connections, and writes the results to
+`rps-results.json` and `rps-results.md` in the benchmark directory. Pass
+`--duration=30s` or `--connections=100` to change the load. The run fails if
+any request errors or gets a non-200 response. Any benchmark can be run in this
+mode. Two are meant for it:
+
+- `hello-world` does no work in its handler, so it measures each runtime's
+  HTTP serving overhead plus the shared templates' cost of handing the request
+  to `handler()`. On Node that includes building a web `Request` from every
+  `node:http` request, which costs Node noticeably more than the other
+  runtimes.
+- `hello-world-bare` answers from each runtime's native server API with no
+  template or handler in between (`node:http`, `Deno.serve`, `Bun.serve`, a
+  workerd `fetch` handler), so it measures the HTTP server alone.
+
 ## Available Scripts
 
 - `node --run bench -- --benchmark=<name>` - Run a specific benchmark
+- `node --run bench:rps -- --benchmark=<name>` - Measure a benchmark's requests per second
 - `node --run format` - Format code with Prettier
 
 ## Configuration
@@ -157,6 +189,11 @@ When you run a benchmark:
 3. **All files are cleaned up**: Generated files are gitignored and automatically regenerated on each run
 
 This means you only maintain your benchmark logic in `benchmark.js` - no need to write boilerplate server code for each runtime!
+
+A benchmark that needs different server code for a runtime can provide its own
+`templates/<runtime>.template.js`, which the runner uses instead of the shared
+one. A benchmark whose templates serve requests themselves, like
+`hello-world-bare`, does not need a `benchmark.js`.
 
 ## Example: URL Parsing Benchmark
 

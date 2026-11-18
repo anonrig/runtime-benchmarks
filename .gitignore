@@ -8,3 +8,5 @@ node_modules/
 */bun.js
 */node.js
 */workerd.js
+*/rps-results.json
+*/rps-results.md

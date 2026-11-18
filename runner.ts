@@ -1,4 +1,4 @@
-import { ChildProcess, execSync, spawn } from 'node:child_process'
+import { ChildProcess, execFileSync, execSync, spawn } from 'node:child_process'
 import { parseArgs } from 'node:util'
 import {
   copyFileSync,
@@ -14,11 +14,17 @@ import path from 'node:path'
 import { createConnection, createServer } from 'node:net'
 import { setTimeout } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const runtimes = ['workerd', 'deno', 'bun', 'node'] as const
+
+// The installed workerd package exports its native binary's path and the
+// newest compatibility date that binary supports.
+const workerdPackage: { default: string; compatibilityDate: string } =
+  createRequire(import.meta.url)('workerd')
 
 // Find an available port by binding to port 0
 async function getAvailablePort(): Promise<number> {
@@ -56,10 +62,29 @@ const { values } = parseArgs({
     benchmark: {
       type: 'string',
     },
+    // 'latency' times sequential requests with hyperfine; 'rps' measures
+    // throughput under concurrent load with oha.
+    mode: {
+      type: 'string',
+      default: 'latency',
+    },
+    duration: {
+      type: 'string',
+      default: '10s',
+    },
+    connections: {
+      type: 'string',
+      default: '50',
+    },
   },
   strict: true,
   allowPositionals: false,
 })
+
+assert(
+  values.mode === 'latency' || values.mode === 'rps',
+  `--mode must be 'latency' or 'rps', got '${values.mode}'`
+)
 
 const processes: Record<Benchmark['runtime'], ChildProcess> = {}
 
@@ -147,12 +172,10 @@ async function startServer(
 
   switch (runtime) {
     case 'workerd':
-      const workerdPath = path.join(
-        __dirname,
-        'node_modules',
-        '.bin',
-        'workerd'
-      )
+      // Spawn the native binary itself rather than node_modules/.bin/workerd.
+      // That shim is a shell script that runs workerd as a child, so killing
+      // it in cleanup() would leave workerd running.
+      const workerdPath = workerdPackage.default
       console.log(`[workerd] Using binary at: ${workerdPath}`)
       console.log(`[workerd] CWD: ${cwd}`)
       console.log(`[workerd] Serving: ${filePath}`)
@@ -219,6 +242,124 @@ assert(
   'Benchmark path is required, such as: node --run bench -- --benchmark=hello-world or --benchmark=all'
 )
 
+function runLatencyBenchmark(benchmarkPath: string, dataBinPath?: string) {
+  const exportJson = path.join(benchmarkPath, 'benchmark-results.json')
+  const exportMarkdown = path.join(benchmarkPath, 'benchmark-results.md')
+
+  let command = `hyperfine --warmup 50 --export-json ${exportJson} --export-markdown ${exportMarkdown} `
+  const curlArgs = dataBinPath ? `--data-binary @${dataBinPath}` : ''
+  for (const runtime of runtimes) {
+    command += ` -n "${runtime}" "curl ${curlArgs} http://localhost:${ports[runtime]}/ -s -o /dev/null"`
+  }
+
+  console.log('Now running: ', command)
+  console.log('')
+
+  execSync(command, { stdio: ['inherit', 'inherit', 'inherit'] })
+}
+
+type RpsResult = {
+  runtime: Benchmark['runtime']
+  requestsPerSec: number
+  totalRequests: number
+  p50Ms: number
+  p99Ms: number
+}
+
+// Runs oha against url and returns its parsed JSON report. Fails if any
+// request errored or got a non-200 response, because the throughput of a
+// server that is failing requests is not a meaningful number.
+function runOha(url: string, duration: string, bodyArgs: string[]) {
+  const output = execFileSync(
+    'oha',
+    [
+      '-z',
+      duration,
+      '-c',
+      values.connections!,
+      // Count requests still in flight at the deadline instead of
+      // reporting them as aborted.
+      '-w',
+      '--no-tui',
+      '--output-format',
+      'json',
+      ...bodyArgs,
+      url,
+    ],
+    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
+  )
+  const report = JSON.parse(output)
+  const statusCodes: Record<string, number> = report.statusCodeDistribution
+  const errors: Record<string, number> = report.errorDistribution
+  assert(
+    Object.keys(errors).length === 0 &&
+      Object.keys(statusCodes).every((code) => code === '200'),
+    `${url} failed requests: statuses ${JSON.stringify(statusCodes)}, errors ${JSON.stringify(errors)}`
+  )
+  return report
+}
+
+function runRpsBenchmark(benchmarkPath: string, dataBinPath?: string) {
+  const bodyArgs = dataBinPath ? ['-m', 'POST', '-D', dataBinPath] : []
+  const warmup = '3s'
+  const results: RpsResult[] = []
+
+  // Load one runtime at a time, so that each has the machine to itself
+  // while it is being measured.
+  for (const runtime of runtimes) {
+    // Use the IPv4 loopback address, since not every runtime listens on
+    // ::1, which localhost may resolve to.
+    const url = `http://127.0.0.1:${ports[runtime]}/`
+    console.log(`[${runtime}] Warming up for ${warmup}`)
+    runOha(url, warmup, bodyArgs)
+    console.log(
+      `[${runtime}] Measuring for ${values.duration} with ${values.connections} connections`
+    )
+    const report = runOha(url, values.duration!, bodyArgs)
+    const totalRequests = Object.values(
+      report.statusCodeDistribution as Record<string, number>
+    ).reduce((sum, count) => sum + count, 0)
+    const result: RpsResult = {
+      runtime,
+      requestsPerSec: report.summary.requestsPerSec,
+      totalRequests,
+      p50Ms: report.latencyPercentiles.p50 * 1000,
+      p99Ms: report.latencyPercentiles.p99 * 1000,
+    }
+    console.log(
+      `[${runtime}] ${Math.round(result.requestsPerSec)} requests/sec`
+    )
+    results.push(result)
+  }
+
+  results.sort((a, b) => b.requestsPerSec - a.requestsPerSec)
+  const best = results[0].requestsPerSec
+
+  let markdown = `Duration: ${values.duration}, connections: ${values.connections}\n\n`
+  markdown += '| Runtime | Requests/sec | Relative | p50 [ms] | p99 [ms] |\n'
+  markdown += '|:---|---:|---:|---:|---:|\n'
+  for (const r of results) {
+    markdown += `| \`${r.runtime}\` | ${Math.round(r.requestsPerSec)} | ${(r.requestsPerSec / best).toFixed(2)} | ${r.p50Ms.toFixed(2)} | ${r.p99Ms.toFixed(2)} |\n`
+  }
+
+  writeFileSync(
+    path.join(benchmarkPath, 'rps-results.json'),
+    JSON.stringify(
+      {
+        duration: values.duration,
+        connections: Number(values.connections),
+        results,
+      },
+      null,
+      2
+    )
+  )
+  writeFileSync(path.join(benchmarkPath, 'rps-results.md'), markdown)
+
+  console.log('')
+  console.log(markdown)
+}
+
 async function runBenchmark(benchmarkPath: string) {
   console.log(`\n${'='.repeat(60)}`)
   console.log(`Running benchmark: ${benchmarkPath}`)
@@ -242,11 +383,6 @@ async function runBenchmark(benchmarkPath: string) {
     JSON.stringify(runtimeConfig, null, 2)
   )
 
-  const exportJson = path.join(benchmarkPath, 'benchmark-results.json')
-  const exportMarkdown = path.join(benchmarkPath, 'benchmark-results.md')
-
-  let command = `hyperfine --warmup 50 --export-json ${exportJson} --export-markdown ${exportMarkdown} `
-
   // Check if data.bin exists for POST benchmarks
   const dataBinPath = path.join(benchmarkPath, 'data.bin')
   const hasDataBin = existsSync(dataBinPath)
@@ -261,9 +397,18 @@ async function runBenchmark(benchmarkPath: string) {
   // Replace port placeholder with actual port
   baseCapnp = baseCapnp.replace('{PORT}', String(ports.workerd))
 
-  // Always embed benchmark.js as an esModule
-  let additionalFiles =
-    ',\n    (name = "benchmark.js", esModule = embed "benchmark.js")'
+  // Run with the newest compatibility date, so that workerd is measured with
+  // its current behavior rather than with flags kept for old Workers.
+  baseCapnp = baseCapnp.replace(
+    '{COMPATIBILITY_DATE}',
+    workerdPackage.compatibilityDate
+  )
+
+  // Embed benchmark.js as an esModule. A benchmark whose own templates
+  // serve requests directly need not have one.
+  let additionalFiles = existsSync(path.join(benchmarkPath, 'benchmark.js'))
+    ? ',\n    (name = "benchmark.js", esModule = embed "benchmark.js")'
+    : ''
 
   // Check if files.json exists in the benchmark directory
   const filesJsonPath = path.join(benchmarkPath, 'files.json')
@@ -291,9 +436,17 @@ async function runBenchmark(benchmarkPath: string) {
   } catch (error) {}
   writeFileSync(destination, baseCapnp, 'utf8')
 
-  // Copy template files for each runtime
+  // Copy template files for each runtime, preferring the benchmark's own
+  // templates/<runtime>.template.js over the shared one.
   for (const runtime of runtimes) {
-    const templatePath = `./templates/${runtime}.template.js`
+    const ownTemplatePath = path.join(
+      benchmarkPath,
+      'templates',
+      `${runtime}.template.js`
+    )
+    const templatePath = existsSync(ownTemplatePath)
+      ? ownTemplatePath
+      : `./templates/${runtime}.template.js`
     const destinationPath = path.join(benchmarkPath, `${runtime}.js`)
     try {
       unlinkSync(destinationPath)
@@ -307,19 +460,16 @@ async function runBenchmark(benchmarkPath: string) {
     } else {
       await startServer(`./${runtime}.js`, runtime, benchmarkPath)
     }
-
-    const curlArgs = hasDataBin
-      ? `--data-binary @${dataBinPath}`
-      : ''
-    command += ` -n "${runtime}" "curl ${curlArgs} http://localhost:${ports[runtime]}/ -s -o /dev/null"`
   }
 
   console.log('All servers ready!')
   console.log('')
-  console.log('Now running: ', command)
-  console.log('')
 
-  execSync(command, { stdio: ['inherit', 'inherit', 'inherit'] })
+  if (values.mode === 'rps') {
+    runRpsBenchmark(benchmarkPath, hasDataBin ? dataBinPath : undefined)
+  } else {
+    runLatencyBenchmark(benchmarkPath, hasDataBin ? dataBinPath : undefined)
+  }
 
   cleanup()
 
@@ -353,9 +503,11 @@ function findBenchmarkDirectories(): string[] {
       continue
     }
 
-    // Check if it contains benchmark.js
-    const benchmarkFile = path.join(fullPath, 'benchmark.js')
-    if (existsSync(benchmarkFile)) {
+    // Check if it contains benchmark.js or its own server templates
+    if (
+      existsSync(path.join(fullPath, 'benchmark.js')) ||
+      existsSync(path.join(fullPath, 'templates'))
+    ) {
       benchmarkDirs.push(entry)
     }
   }
@@ -420,6 +572,9 @@ if (benchmark === 'all') {
   for (const dir of benchmarkDirs) {
     await runBenchmark(dir)
   }
+
+  // RESULTS.md collects the latency results only.
+  if (values.mode === 'rps') process.exit(0)
 
   // Generate consolidated results
   const resultsMarkdown = generateResultsMarkdown(benchmarkDirs)

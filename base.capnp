@@ -19,7 +19,8 @@ const helloWorldExample :Workerd.Config = (
 
 # The definition of the actual helloWorld worker exposed using the "main" service.
 # In this example the worker is implemented as an ESM module (see worker.js).
-# The compatibilityDate is required. For more details on compatibility dates see:
+# The compatibilityDate is required. The runner fills in the newest date the
+# installed workerd supports. For more details on compatibility dates see:
 #   https://developers.cloudflare.com/workers/platform/compatibility-dates/
 
 const baseWorker :Workerd.Worker = (
@@ -27,6 +28,6 @@ const baseWorker :Workerd.Worker = (
     (name = "worker", esModule = embed "workerd.js")
     # Additional files will be inserted here by the runner
   ],
-  compatibilityDate = "2025-10-01",
+  compatibilityDate = "{COMPATIBILITY_DATE}",
   compatibilityFlags = [ "nodejs_compat" ]
 );

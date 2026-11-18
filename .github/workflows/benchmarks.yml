@@ -11,20 +11,20 @@ jobs:
   benchmarks:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v6.0.1
+      - uses: actions/checkout@v7.0.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6.1.0
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: 'latest'
 
       - name: Setup Deno
-        uses: denoland/setup-deno@v2.0.3
+        uses: denoland/setup-deno@v2.0.5
         with:
           deno-version: 'latest'
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2.0.2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: 'latest'
 
@@ -35,7 +35,7 @@ jobs:
           sudo dpkg -i hyperfine_${HYPERFINE_VERSION#v}_amd64.deb
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4.2.0
+        uses: pnpm/action-setup@v6.1.1
         with:
           version: 'latest'
 
@@ -43,14 +43,14 @@ jobs:
         run: pnpm install
 
       - name: Run benchmarks with CodSpeed
-        uses: CodSpeedHQ/action@v4.8.2
+        uses: CodSpeedHQ/action@v5.6.3
         with:
           run: pnpm run bench:all
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: walltime
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v6.0.0
+        uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: benchmark-results

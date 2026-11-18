@@ -7,6 +7,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "bench": "node --no-warnings --experimental-strip-types runner.ts",
     "bench:all": "node --no-warnings --experimental-strip-types runner.ts --benchmark=all",
+    "bench:rps": "node --no-warnings --experimental-strip-types runner.ts --mode=rps",
     "format": "prettier --write ."
   },
   "keywords": [],
@@ -14,13 +15,13 @@
   "license": "MIT",
   "description": "",
   "devDependencies": {
-    "@types/node": "^25.0.3",
-    "esbuild": "^0.27.2",
-    "prettier": "^3.7.4"
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
+    "prettier": "^3.10.1"
   },
   "dependencies": {
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3",
-    "workerd": "^1.20260101.0"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "workerd": "^1.20261117.1"
   }
 }
